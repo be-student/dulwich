@@ -993,7 +993,7 @@ class ReftableRefsContainer(RefsContainer):
                     all_refs[ref] = (value_type, value)
         return all_refs
 
-    def allkeys(self) -> set[Ref]:
+    def allkeys(self, include_broken: bool = False) -> set[Ref]:
         """Return set of all ref names."""
         refs = self._read_all_tables()
         result = set(refs.keys())
@@ -1007,7 +1007,9 @@ class ReftableRefsContainer(RefsContainer):
 
         return result
 
-    def follow(self, name: Ref) -> tuple[list[Ref], ObjectID | None]:
+    def follow(
+        self, name: Ref, include_broken: bool = False
+    ) -> tuple[list[Ref], ObjectID | None]:
         """Follow a reference name.
 
         Returns: a tuple of (refnames, sha), where refnames are the names of
@@ -1050,11 +1052,12 @@ class ReftableRefsContainer(RefsContainer):
             raise KeyError(name)
         return sha
 
-    def read_loose_ref(self, name: Ref) -> bytes:
+    def read_loose_ref(self, name: Ref, include_broken: bool = False) -> bytes:
         """Read a reference value without following symbolic refs.
 
         Args:
             name: the refname to read
+            include_broken: Accepted for compatibility with ref containers.
         Returns: The contents of the ref file.
                  For symbolic refs, returns b"ref: <target>"
         Raises:

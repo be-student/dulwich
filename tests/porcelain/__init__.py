@@ -10101,6 +10101,28 @@ class ForEachTests(PorcelainTestCase):
             ],
         )
 
+    def test_for_each_ref_honors_git_ref_paranoia(self) -> None:
+        ref = b"refs/heads/bad..name"
+        with open(self.repo.refs.refpath(ref), "wb") as f:
+            f.write(self.repo.refs[b"HEAD"] + b"\n")
+
+        hidden = porcelain.for_each_ref(self.repo, env={"GIT_REF_PARANOIA": "0"})
+        visible = porcelain.for_each_ref(self.repo, env={"GIT_REF_PARANOIA": "1"})
+
+        self.assertNotIn(ref, {name for _sha, _type, name in hidden})
+        self.assertIn(ref, {name for _sha, _type, name in visible})
+
+    def test_show_ref_honors_git_ref_paranoia(self) -> None:
+        ref = b"refs/heads/bad..name"
+        with open(self.repo.refs.refpath(ref), "wb") as f:
+            f.write(self.repo.refs[b"HEAD"] + b"\n")
+
+        hidden = porcelain.show_ref(self.repo, env={"GIT_REF_PARANOIA": "false"})
+        visible = porcelain.show_ref(self.repo, env={})
+
+        self.assertNotIn(ref, {name for _sha, name in hidden})
+        self.assertIn(ref, {name for _sha, name in visible})
+
 
 class SparseCheckoutTests(PorcelainTestCase):
     """Integration tests for Dulwich's sparse checkout feature."""

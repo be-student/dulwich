@@ -38,6 +38,7 @@ from dulwich.refs import (
     DictRefsContainer,
     DiskRefsContainer,
     NamespacedRefsContainer,
+    Ref,
     SymrefLoop,
     _split_ref_line,
     check_ref_format,
@@ -444,6 +445,17 @@ class DictRefsContainerTests(RefsContainerTests, TestCase):
         expected_refs[b"refs/stash"] = b"00" * 20
         self.assertEqual(expected_refs, self._refs.as_dict())
 
+    def test_default_iteration_supports_legacy_subclass_signatures(self) -> None:
+        class LegacyRefsContainer(DictRefsContainer):
+            def allkeys(self) -> set[Ref]:
+                return super().allkeys()
+
+            def read_loose_ref(self, name: Ref) -> bytes | None:
+                return super().read_loose_ref(name)
+
+        refs = LegacyRefsContainer({Ref(b"refs/heads/main"): ONES})
+        self.assertEqual({Ref(b"refs/heads/main"): ONES}, refs.as_dict())
+
     def test_set_if_equals_with_symbolic_ref(self) -> None:
         # Test that set_if_equals only updates the requested ref,
         # not all refs in a symbolic reference chain
@@ -497,6 +509,28 @@ class DiskRefsContainerTests(RefsContainerTests, TestCase):
             },
             self._refs.get_packed_refs(),
         )
+
+    def test_allkeys_can_include_badly_named_refs(self) -> None:
+        ref = b"refs/heads/bad..name"
+        path = self._refs.refpath(ref)
+        with open(path, "wb") as f:
+            f.write(ONES + b"\n")
+
+        self.assertNotIn(ref, self._refs.allkeys())
+        self.assertIn(ref, self._refs.allkeys(include_broken=True))
+
+    def test_as_dict_can_include_broken_ref_values(self) -> None:
+        ref = b"refs/heads/broken"
+        with open(self._refs.refpath(ref), "wb") as f:
+            f.write(b"not-an-object-id\n")
+
+        self.assertNotIn(ref, self._refs.as_dict())
+        self.assertEqual(
+            b"not-an-object-id", self._refs.as_dict(include_broken=True)[ref]
+        )
+
+    def test_include_broken_cannot_escape_refs_directory(self) -> None:
+        self.assertIsNone(self._refs.read_ref(b"refs/../config", include_broken=True))
 
     def test_remove_packed_ref_with_unread_packed_refs(self) -> None:
         # An unconditional delete never reads packed-refs on the way in, so

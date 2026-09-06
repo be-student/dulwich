@@ -335,56 +335,82 @@ class RefsContainer:
         for ref in to_delete:
             self.remove_if_equals(Ref(b"/".join((base, ref))), None, message=message)
 
-    def allkeys(self) -> set[Ref]:
-        """All refs present in this container."""
+    def allkeys(self, include_broken: bool = False) -> set[Ref]:
+        """All refs present in this container.
+
+        Args:
+          include_broken: Include refs whose names fail ref-format validation.
+        """
         raise NotImplementedError(self.allkeys)
 
     def __iter__(self) -> Iterator[Ref]:
         """Iterate over all reference keys."""
         return iter(self.allkeys())
 
-    def keys(self, base: Ref | None = None) -> set[Ref]:
+    def keys(self, base: Ref | None = None, include_broken: bool = False) -> set[Ref]:
         """Refs present in this container.
 
         Args:
           base: An optional base to return refs under.
+          include_broken: Include refs whose names fail ref-format validation.
         Returns: An unsorted set of valid refs in this container, including
             packed refs.
         """
         if base is not None:
+            if include_broken:
+                return self.subkeys(base, include_broken=True)
             return self.subkeys(base)
         else:
+            if include_broken:
+                return self.allkeys(include_broken=True)
             return self.allkeys()
 
-    def subkeys(self, base: Ref) -> set[Ref]:
+    def subkeys(self, base: Ref, include_broken: bool = False) -> set[Ref]:
         """Refs present in this container under a base.
 
         Args:
           base: The base to return refs under.
+          include_broken: Include refs whose names fail ref-format validation.
         Returns: A set of valid refs in this container under the base; the base
             prefix is stripped from the ref names returned.
         """
         keys: set[Ref] = set()
         base_len = len(base) + 1
-        for refname in self.allkeys():
+        refs = self.allkeys(include_broken=True) if include_broken else self.allkeys()
+        for refname in refs:
             if refname.startswith(base):
                 keys.add(Ref(refname[base_len:]))
         return keys
 
-    def as_dict(self, base: Ref | None = None) -> dict[Ref, ObjectID]:
-        """Return the contents of this container as a dictionary."""
+    def as_dict(
+        self, base: Ref | None = None, include_broken: bool = False
+    ) -> dict[Ref, ObjectID]:
+        """Return the contents of this container as a dictionary.
+
+        Args:
+          base: Optional base to return refs under.
+          include_broken: Include refs whose names fail ref-format validation.
+        """
         ret: dict[Ref, ObjectID] = {}
-        keys = self.keys(base)
+        keys = (
+            self.keys(base, include_broken=True) if include_broken else self.keys(base)
+        )
         base_bytes: bytes
         if base is None:
             base_bytes = b""
         else:
             base_bytes = base.rstrip(b"/")
         for key in keys:
+            refname = Ref((base_bytes + b"/" + key).strip(b"/"))
             try:
-                ret[key] = self[Ref((base_bytes + b"/" + key).strip(b"/"))]
+                if include_broken:
+                    _chain, sha = self.follow(refname, include_broken=True)
+                else:
+                    _chain, sha = self.follow(refname)
             except (SymrefLoop, KeyError):
                 continue  # Unable to resolve
+            if sha is not None and (include_broken or valid_hexsha(sha)):
+                ret[key] = sha
 
         return ret
 
@@ -439,30 +465,37 @@ class RefsContainer:
         if not (valid_hexsha(ref) or ref.startswith(SYMREF)):
             raise ValueError(f"{ref!r} must be a valid sha or a symref")
 
-    def read_ref(self, refname: Ref) -> bytes | None:
+    def read_ref(self, refname: Ref, include_broken: bool = False) -> bytes | None:
         """Read a reference without following any references.
 
         Args:
           refname: The name of the reference
+          include_broken: Allow a badly formatted ref name to be read.
         Returns: The contents of the ref file, or None if it does
             not exist.
         """
-        contents = self.read_loose_ref(refname)
+        if include_broken:
+            contents = self.read_loose_ref(refname, include_broken=True)
+        else:
+            contents = self.read_loose_ref(refname)
         if not contents:
             contents = self.get_packed_refs().get(refname, None)
         return contents
 
-    def read_loose_ref(self, name: Ref) -> bytes | None:
+    def read_loose_ref(self, name: Ref, include_broken: bool = False) -> bytes | None:
         """Read a loose reference and return its contents.
 
         Args:
           name: the refname to read
+          include_broken: Allow a badly formatted ref name to be read.
         Returns: The contents of the ref file, or None if it does
             not exist.
         """
         raise NotImplementedError(self.read_loose_ref)
 
-    def follow(self, name: Ref) -> tuple[list[Ref], ObjectID | None]:
+    def follow(
+        self, name: Ref, include_broken: bool = False
+    ) -> tuple[list[Ref], ObjectID | None]:
         """Follow a reference name.
 
         Returns: a tuple of (refnames, sha), wheres refnames are the names of
@@ -474,7 +507,10 @@ class RefsContainer:
         while contents and contents.startswith(SYMREF):
             refname = Ref(contents[len(SYMREF) :])
             refnames.append(refname)
-            contents = self.read_ref(refname)
+            if include_broken:
+                contents = self.read_ref(refname, include_broken=True)
+            else:
+                contents = self.read_ref(refname)
             if not contents:
                 break
             depth += 1
@@ -663,11 +699,11 @@ class DictRefsContainer(RefsContainer):
         self._peeled: dict[Ref, ObjectID] = {}
         self._watchers: set[Any] = set()
 
-    def allkeys(self) -> set[Ref]:
+    def allkeys(self, include_broken: bool = False) -> set[Ref]:
         """Return all reference keys."""
         return set(self._refs.keys())
 
-    def read_loose_ref(self, name: Ref) -> bytes | None:
+    def read_loose_ref(self, name: Ref, include_broken: bool = False) -> bytes | None:
         """Read a loose reference."""
         return self._refs.get(name, None)
 
@@ -911,6 +947,7 @@ class DiskRefsContainer(RefsContainer):
         path: bytes,
         base: bytes,
         dir_filter: Callable[[bytes], bool] | None = None,
+        include_broken: bool = False,
     ) -> Iterator[Ref]:
         refspath = os.path.join(path, base.rstrip(b"/"))
         prefix_len = len(os.path.join(path, b""))
@@ -926,10 +963,12 @@ class DiskRefsContainer(RefsContainer):
 
             for filename in files:
                 refname = b"/".join([directory, filename])
-                if check_ref_format(Ref(refname)):
+                if include_broken or check_ref_format(Ref(refname)):
                     yield Ref(refname)
 
-    def _iter_loose_refs(self, base: bytes = b"refs/") -> Iterator[Ref]:
+    def _iter_loose_refs(
+        self, base: bytes = b"refs/", include_broken: bool = False
+    ) -> Iterator[Ref]:
         base = base.rstrip(b"/") + b"/"
         search_paths: list[tuple[bytes, Callable[[bytes], bool] | None]] = []
         if base != b"refs/":
@@ -945,13 +984,15 @@ class DiskRefsContainer(RefsContainer):
             search_paths.append((self.worktree_path, is_per_worktree_ref))
 
         for path, dir_filter in search_paths:
-            yield from self._iter_dir(path, base, dir_filter=dir_filter)
+            yield from self._iter_dir(
+                path, base, dir_filter=dir_filter, include_broken=include_broken
+            )
 
-    def subkeys(self, base: Ref) -> set[Ref]:
+    def subkeys(self, base: Ref, include_broken: bool = False) -> set[Ref]:
         """Return subkeys under a given base reference path."""
         subkeys: set[Ref] = set()
 
-        for key in self._iter_loose_refs(base):
+        for key in self._iter_loose_refs(base, include_broken=include_broken):
             if key.startswith(base):
                 subkeys.add(Ref(key[len(base) :].strip(b"/")))
 
@@ -960,13 +1001,13 @@ class DiskRefsContainer(RefsContainer):
                 subkeys.add(Ref(key[len(base) :].strip(b"/")))
         return subkeys
 
-    def allkeys(self) -> set[Ref]:
+    def allkeys(self, include_broken: bool = False) -> set[Ref]:
         """Return all reference keys."""
         allkeys: set[Ref] = set()
         if os.path.exists(self.refpath(HEADREF)):
             allkeys.add(Ref(HEADREF))
 
-        allkeys.update(self._iter_loose_refs())
+        allkeys.update(self._iter_loose_refs(include_broken=include_broken))
         allkeys.update(self.get_packed_refs())
         return allkeys
 
@@ -1107,7 +1148,7 @@ class DiskRefsContainer(RefsContainer):
             # Known not peelable
             return self[name]
 
-    def read_loose_ref(self, name: Ref) -> bytes | None:
+    def read_loose_ref(self, name: Ref, include_broken: bool = False) -> bytes | None:
         """Read a reference file and return its contents.
 
         If the reference file a symbolic reference, only read the first line of
@@ -1115,6 +1156,7 @@ class DiskRefsContainer(RefsContainer):
 
         Args:
           name: the refname to read, relative to refpath
+          include_broken: Allow a badly formatted ref name to be read.
         Returns: The contents of the ref file, or None if the file does not
             exist.
 
@@ -1122,11 +1164,23 @@ class DiskRefsContainer(RefsContainer):
           IOError: if any other error occurs
         """
         # Validate the name before turning it into a path.
-        try:
-            self._check_refname(name)
-        except RefFormatError:
-            return None
+        if not include_broken:
+            try:
+                self._check_refname(name)
+            except RefFormatError:
+                return None
         filename = self.refpath(name)
+        if include_broken and name != HEADREF:
+            root_dir = self.worktree_path if is_per_worktree_ref(name) else self.path
+            refs_root = os.path.abspath(os.path.join(root_dir, b"refs"))
+            try:
+                if (
+                    os.path.commonpath((refs_root, os.path.abspath(filename)))
+                    != refs_root
+                ):
+                    return None
+            except ValueError:
+                return None
         try:
             with GitFile(filename, "rb") as f:
                 header = f.read(len(SYMREF))
@@ -2027,18 +2081,26 @@ class NamespacedRefsContainer(RefsContainer):
             return name[len(self._namespace_prefix) :]
         return None
 
-    def allkeys(self) -> set[Ref]:
+    def allkeys(self, include_broken: bool = False) -> set[Ref]:
         """Return all reference keys in this namespace."""
         keys: set[Ref] = set()
-        for key in self._refs.allkeys():
+        underlying_keys = (
+            self._refs.allkeys(include_broken=True)
+            if include_broken
+            else self._refs.allkeys()
+        )
+        for key in underlying_keys:
             stripped = self._strip_namespace(key)
             if stripped is not None:
                 keys.add(Ref(stripped))
         return keys
 
-    def read_loose_ref(self, name: Ref) -> bytes | None:
+    def read_loose_ref(self, name: Ref, include_broken: bool = False) -> bytes | None:
         """Read a loose reference."""
-        return self._refs.read_loose_ref(Ref(self._apply_namespace(name)))
+        namespaced_name = Ref(self._apply_namespace(name))
+        if include_broken:
+            return self._refs.read_loose_ref(namespaced_name, include_broken=True)
+        return self._refs.read_loose_ref(namespaced_name)
 
     def get_packed_refs(self) -> dict[Ref, ObjectID]:
         """Get packed refs within this namespace."""

@@ -893,6 +893,19 @@ def _parse_env_bool(env: Mapping[str, str], name: str) -> bool:
         ) from None
 
 
+def _include_broken_refs(env: Mapping[str, str] | None) -> bool:
+    """Return whether ref iteration should include badly named refs.
+
+    Git enables ref paranoia by default. Setting ``GIT_REF_PARANOIA`` to a
+    false value opts into silently skipping broken refs.
+    """
+    if env is None:
+        env = os.environ
+    if "GIT_REF_PARANOIA" not in env:
+        return True
+    return _parse_env_bool(env, "GIT_REF_PARANOIA")
+
+
 def _repo_from_env(
     path_or_repo: str | bytes | os.PathLike[str] | None,
     env: Mapping[str, str] | None,
@@ -5078,19 +5091,21 @@ def fetch(
 def for_each_ref(
     repo: Repo | str | None = None,
     pattern: str | bytes | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> list[tuple[bytes, bytes, bytes]]:
     """Iterate over all refs that match the (optional) pattern.
 
     Args:
       repo: Path to the repository
       pattern: Optional glob (7) patterns to filter the refs with
+      env: Environment to read ``GIT_REF_PARANOIA`` from (defaults to os.environ)
     Returns: List of bytes tuples with: (sha, object_type, ref_name)
     """
     if isinstance(pattern, str):
         pattern = os.fsencode(pattern)
 
     with open_repo_closing(repo) as r:
-        refs = r.get_refs()
+        refs = r.get_refs(include_broken=_include_broken_refs(env))
 
     if pattern:
         matching_refs: dict[Ref, ObjectID] = {}
@@ -5136,6 +5151,7 @@ def show_ref(
     tags: bool = False,
     dereference: bool = False,
     verify: bool = False,
+    env: Mapping[str, str] | None = None,
 ) -> list[tuple[bytes, bytes]]:
     """List references in a local repository.
 
@@ -5147,6 +5163,7 @@ def show_ref(
       tags: Limit to local tags (refs/tags/)
       dereference: Dereference tags into object IDs
       verify: Enable stricter reference checking (exact path match)
+      env: Environment to read ``GIT_REF_PARANOIA`` from (defaults to os.environ)
     Returns: List of tuples with (sha, ref_name) or (sha, ref_name^{}) for dereferenced tags
     """
     # Convert string patterns to bytes
@@ -5155,7 +5172,7 @@ def show_ref(
         byte_patterns = [os.fsencode(p) if isinstance(p, str) else p for p in patterns]
 
     with open_repo_closing(repo) as r:
-        refs = r.get_refs()
+        refs = r.get_refs(include_broken=_include_broken_refs(env))
 
         # Filter by branches/tags if specified
         if branches or tags:

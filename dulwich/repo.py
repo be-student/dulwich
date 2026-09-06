@@ -1018,12 +1018,14 @@ class BaseRepo:
             update_shallow=self.update_shallow,
         )
 
-    def get_refs(self) -> dict[Ref, ObjectID]:
+    def get_refs(self, include_broken: bool = False) -> dict[Ref, ObjectID]:
         """Get dictionary with all refs.
 
+        Args:
+          include_broken: Include refs whose names fail ref-format validation.
         Returns: A ``dict`` mapping ref names to SHA1s
         """
-        return self.refs.as_dict()
+        return self.refs.as_dict(include_broken=include_broken)
 
     def head(self) -> ObjectID:
         """Return the SHA1 pointed at by HEAD."""
