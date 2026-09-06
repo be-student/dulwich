@@ -75,6 +75,7 @@ __all__ = [
     "read_index_dict_with_version",
     "read_index_header",
     "read_submodule_head",
+    "refresh_index_stat",
     "update_working_tree",
     "validate_path",
     "validate_path_element_default",
@@ -3600,6 +3601,61 @@ def refresh_index(index: Index, root_path: bytes) -> None:
     for path, entry in iter_fresh_entries(index, root_path):
         if entry:
             index[path] = entry
+
+
+def refresh_index_stat(
+    index: Index,
+    root_path: str | bytes,
+    filter_blob_callback: Callable[[Blob, bytes], Blob] | None = None,
+    trust_ctime: bool = True,
+) -> bool:
+    """Refresh stat data for tracked files whose content is unchanged.
+
+    Unlike :func:`refresh_index`, this never replaces the object id or mode in
+    an index entry. It is therefore safe for read commands such as ``status``
+    to use as an optional performance update.
+
+    Args:
+      index: Index to refresh
+      root_path: Working tree root
+      filter_blob_callback: Optional callback to normalize worktree blobs
+      trust_ctime: Whether ctime participates in the stat comparison
+
+    Returns:
+      Whether any index entries were refreshed
+    """
+    if not isinstance(root_path, bytes):
+        root_path = os.fsencode(root_path)
+
+    updated = False
+    for tree_path, entry in list(index.iteritems()):
+        if isinstance(entry, ConflictedIndexEntry) or entry.skip_worktree:
+            continue
+
+        full_path = _tree_to_fs_path(root_path, tree_path)
+        try:
+            st = os.lstat(full_path)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+
+        if not stat.S_ISREG(st.st_mode) and not stat.S_ISLNK(st.st_mode):
+            continue
+        if _stat_matches_entry(st, entry, trust_ctime):
+            continue
+
+        blob = blob_from_path_and_stat(full_path, st)
+        if filter_blob_callback is not None:
+            blob = filter_blob_callback(blob, tree_path)
+        if blob.id != entry.sha:
+            continue
+
+        refreshed = index_entry_from_stat(st, entry.sha, mode=entry.mode)
+        refreshed.flags = entry.flags
+        refreshed.extended_flags = entry.extended_flags
+        index[tree_path] = refreshed
+        updated = True
+
+    return updated
 
 
 class locked_index:

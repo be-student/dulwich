@@ -105,6 +105,15 @@ else:
 logger = logging.getLogger(__name__)
 
 
+def _optional_locks_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Return whether Git permits optional operations that require locks."""
+    if env is None:
+        env = os.environ
+    if "GIT_OPTIONAL_LOCKS" not in env:
+        return True
+    return porcelain._parse_env_bool(env, "GIT_OPTIONAL_LOCKS")
+
+
 def to_display_str(value: bytes | str) -> str:
     """Convert a bytes or string value to a display string.
 
@@ -3553,7 +3562,10 @@ class cmd_status(Command):
             help="Display untracked files in columns",
         )
         parsed_args = parser.parse_args(args)
-        status = porcelain.status(parsed_args.gitdir)
+        status = porcelain.status(
+            parsed_args.gitdir,
+            update_index=_optional_locks_enabled(),
+        )
         if any(names for (kind, names) in status.staged.items()):
             sys.stdout.write("Changes to be committed:\n\n")
             for kind, names in status.staged.items():

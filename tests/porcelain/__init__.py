@@ -7288,6 +7288,72 @@ class PullTests(PorcelainTestCase):
 
 
 class StatusTests(PorcelainTestCase):
+    def _commit_file(self, name: str, contents: bytes) -> str:
+        path = os.path.join(self.repo.path, name)
+        with open(path, "wb") as f:
+            f.write(contents)
+        porcelain.add(self.repo, path)
+        porcelain.commit(
+            self.repo,
+            message=b"add tracked file",
+            author=b"author <email>",
+            committer=b"committer <email>",
+        )
+        return path
+
+    def test_update_index_refreshes_stat_for_unchanged_content(self) -> None:
+        path = self._commit_file("tracked", b"unchanged")
+        before = self.repo.open_index()[b"tracked"]
+        self.assertIsInstance(before.mtime, tuple)
+        assert isinstance(before.mtime, tuple)
+        os.utime(path, ns=(before.mtime[0] * 1_000_000_000 + before.mtime[1] + 1,) * 2)
+
+        result = porcelain.status(self.repo, update_index=True)
+
+        after = self.repo.open_index()[b"tracked"]
+        self.assertEqual([], result.unstaged)
+        self.assertEqual(before.sha, after.sha)
+        self.assertNotEqual(before.mtime, after.mtime)
+
+    def test_status_does_not_refresh_index_by_default(self) -> None:
+        path = self._commit_file("tracked", b"unchanged")
+        before = self.repo.open_index()[b"tracked"]
+        self.assertIsInstance(before.mtime, tuple)
+        assert isinstance(before.mtime, tuple)
+        os.utime(path, ns=(before.mtime[0] * 1_000_000_000 + before.mtime[1] + 1,) * 2)
+
+        result = porcelain.status(self.repo)
+
+        after = self.repo.open_index()[b"tracked"]
+        self.assertEqual([], result.unstaged)
+        self.assertEqual(before.mtime, after.mtime)
+
+    def test_update_index_does_not_stage_changed_content(self) -> None:
+        path = self._commit_file("tracked", b"original")
+        before = self.repo.open_index()[b"tracked"]
+        with open(path, "wb") as f:
+            f.write(b"modified")
+
+        result = porcelain.status(self.repo, update_index=True)
+
+        after = self.repo.open_index()[b"tracked"]
+        self.assertEqual([b"tracked"], result.unstaged)
+        self.assertEqual(before.sha, after.sha)
+
+    def test_update_index_lock_contention_is_nonfatal(self) -> None:
+        path = self._commit_file("tracked", b"unchanged")
+        before = self.repo.open_index()[b"tracked"]
+        self.assertIsInstance(before.mtime, tuple)
+        assert isinstance(before.mtime, tuple)
+        os.utime(path, ns=(before.mtime[0] * 1_000_000_000 + before.mtime[1] + 1,) * 2)
+        lock_path = self.repo.index_path() + ".lock"
+        Path(lock_path).touch()
+        self.addCleanup(os.unlink, lock_path)
+
+        result = porcelain.status(self.repo, update_index=True)
+
+        self.assertEqual([], result.unstaged)
+
     def test_empty(self) -> None:
         results = porcelain.status(self.repo)
         self.assertEqual({"add": [], "delete": [], "modify": []}, results.staged)

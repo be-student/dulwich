@@ -359,7 +359,7 @@ from ..diff_tree import (
     tree_changes,
 )
 from ..errors import SendPackError
-from ..file import open_nofollow
+from ..file import FileLocked, open_nofollow
 from ..graph import can_fast_forward
 from ..ignore import IgnoreFilterManager
 from ..index import (
@@ -371,6 +371,7 @@ from ..index import (
     build_file_from_blob,
     get_path_element_validator,
     get_unstaged_changes,
+    refresh_index_stat,
     symlink,
     update_working_tree,
 )
@@ -3893,6 +3894,7 @@ def status(
     repo: str | os.PathLike[str] | Repo | None = None,
     ignored: bool = False,
     untracked_files: str = "normal",
+    update_index: bool = False,
 ) -> GitStatus:
     """Returns staged, unstaged, and untracked changes relative to the HEAD.
 
@@ -3907,6 +3909,7 @@ def status(
           contains many untracked files/directories.
         Using untracked_files="normal" provides a good balance, only showing
           directories that are entirely untracked without listing all their contents.
+      update_index: Refresh unchanged index stat data as an optional side effect.
 
     Returns: GitStatus tuple,
         staged -  dict with lists of staged paths (filesystem paths as bytes)
@@ -3947,6 +3950,16 @@ def status(
                 max_stat,
             )
         )
+
+        if update_index and refresh_index_stat(
+            index, r.path, filter_callback, trust_ctime
+        ):
+            try:
+                index.write()
+            except FileLocked:
+                # Index refresh is only a performance optimization. Status must
+                # still succeed when another process owns the lock.
+                pass
 
         untracked_paths = get_untracked_paths(
             r.path,

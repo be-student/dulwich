@@ -641,6 +641,40 @@ class LogCommandTest(DulwichCliTestCase):
 class StatusCommandTest(DulwichCliTestCase):
     """Tests for status command."""
 
+    @patch("dulwich.porcelain.status")
+    def test_status_enables_optional_index_refresh_by_default(self, mock_status):
+        mock_status.return_value = MagicMock(
+            staged={"add": [], "delete": [], "modify": []},
+            unstaged=[],
+            untracked=[],
+        )
+
+        self._run_cli("status")
+
+        mock_status.assert_called_once_with(None, update_index=True)
+
+    @patch("dulwich.porcelain.status")
+    def test_status_disables_optional_index_refresh_from_environment(self, mock_status):
+        mock_status.return_value = MagicMock(
+            staged={"add": [], "delete": [], "modify": []},
+            unstaged=[],
+            untracked=[],
+        )
+        self.overrideEnv("GIT_OPTIONAL_LOCKS", "0")
+
+        self._run_cli("status")
+
+        mock_status.assert_called_once_with(None, update_index=False)
+
+    @patch("dulwich.porcelain.status")
+    def test_status_rejects_invalid_optional_locks_value(self, mock_status):
+        self.overrideEnv("GIT_OPTIONAL_LOCKS", "invalid")
+
+        with self.assertRaisesRegex(ValueError, "GIT_OPTIONAL_LOCKS"):
+            self._run_cli("status")
+
+        mock_status.assert_not_called()
+
     def test_status_empty(self):
         _result, _stdout, _stderr = self._run_cli("status")
         # Should not crash on empty repo
