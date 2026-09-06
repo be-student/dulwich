@@ -5073,6 +5073,88 @@ class cmd_describe(Command):
         logger.info(porcelain.describe(None))
 
 
+class cmd_bugreport(Command):
+    """Write a bug report template with system and repository information."""
+
+    def run(self, args: Sequence[str]) -> None:
+        """Collect a report and optionally open it in an editor.
+
+        Args:
+            args: Command line arguments
+        """
+        import platform
+        from datetime import datetime
+
+        from dulwich import __version__
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("-o", "--output-directory", default=".")
+        suffix_group = parser.add_mutually_exclusive_group()
+        suffix_group.add_argument("-s", "--suffix", default="%Y-%m-%d-%H%M")
+        suffix_group.add_argument("--no-suffix", action="store_true")
+        parser.add_argument(
+            "--no-edit", action="store_true", help="Do not open an editor"
+        )
+        options = parser.parse_args(args)
+        suffix = "" if options.no_suffix else datetime.now().strftime(options.suffix)
+        if any(char in suffix for char in ("/", "\\", "\0")):
+            parser.error("suffix must not contain path separators or NUL")
+        name = "dulwich-bugreport" + ("-" + suffix if suffix else "") + ".txt"
+        report_path = Path(options.output_directory) / name
+
+        lines = [
+            "Please describe the problem before sharing this report.",
+            "Review the collected information before sending it.",
+            "",
+            "What did you do? (Include steps to reproduce.)",
+            "",
+            "What did you expect to happen?",
+            "",
+            "What happened instead?",
+            "",
+            "[System information]",
+            "Dulwich version: " + ".".join(str(part) for part in __version__),
+            "Python version: " + sys.version,
+            "Python implementation: " + platform.python_implementation(),
+            "System: " + platform.system(),
+            "Release: " + platform.release(),
+            "Machine: " + platform.machine(),
+            "Python compiler: " + platform.python_compiler(),
+            "Shell: " + os.environ.get("SHELL", "(not set)"),
+            "",
+            "[Repository information]",
+        ]
+        try:
+            repo = Repo.discover()
+        except NotGitRepository:
+            lines.append("Repository: (not found)")
+        else:
+            with repo:
+                lines.append(f"Bare: {repo.bare}")
+                config = repo.get_config_stack()
+                try:
+                    hooks_path = Path(os.fsdecode(config.get((b"core",), b"hooksPath")))
+                    if not hooks_path.is_absolute():
+                        hooks_path = Path(repo.path) / hooks_path
+                except KeyError:
+                    hooks_path = Path(repo.commondir()) / "hooks"
+                lines.append("Executable hook files:")
+                if hooks_path.is_dir():
+                    lines.extend(
+                        "  " + hook.name
+                        for hook in sorted(hooks_path.iterdir())
+                        if hook.is_file() and os.access(hook, os.X_OK)
+                    )
+        content = ("\n".join(lines) + "\n").encode("utf-8", "replace")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        # Reserve the filename before editing and preserve the template on failure.
+        with report_path.open("xb") as report:
+            report.write(content)
+        if not options.no_edit:
+            report_path.write_bytes(launch_editor(content))
+        sys.stdout.write(f"Created bug report: {report_path}\n")
+
+
 class cmd_diagnose(Command):
     """Display diagnostic information about the Python environment."""
 
@@ -7779,6 +7861,7 @@ commands = {
     "blame": cmd_blame,
     "branch": cmd_branch,
     "bundle": cmd_bundle,
+    "bugreport": cmd_bugreport,
     "cat-file": cmd_cat_file,
     "check-ignore": cmd_check_ignore,
     "check-mailmap": cmd_check_mailmap,

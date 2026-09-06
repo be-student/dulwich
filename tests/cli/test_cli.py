@@ -34,6 +34,7 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import skipIf
 from unittest.mock import MagicMock, patch
 
@@ -188,6 +189,113 @@ class InitCommandTest(DulwichCliTestCase):
         self.addCleanup(repo.close)
         config = repo.get_config()
         self.assertEqual(b"sha256", config.get((b"extensions",), b"objectformat"))
+
+
+class BugreportCommandTest(DulwichCliTestCase):
+    """Tests for collecting bug report templates."""
+
+    def test_bugreport_outside_repository(self):
+        """A report can be generated even when repository discovery fails."""
+        self.repo_path = self.test_dir
+        result, _, _ = self._run_cli("bugreport", "--no-edit", "--no-suffix")
+        self.assertIsNone(result)
+        report = Path(self.test_dir, "dulwich-bugreport.txt").read_text()
+        self.assertIn("What happened instead?", report)
+        self.assertIn("Dulwich version:", report)
+        self.assertIn("Python version:", report)
+        self.assertIn("Repository: (not found)", report)
+
+    def test_bugreport_repository_and_output_directory(self):
+        """Report metadata does not include config values or hook contents."""
+        hook = Path(self.repo.controldir(), "hooks", "pre-commit")
+        hook.write_text("#!/bin/sh\n# private-hook-content\n")
+        hook.chmod(0o755)
+        config = self.repo.get_config()
+        config.set((b"remote", b"origin"), b"url", b"https://private-token@example.com")
+        config.write_to_path()
+        result, _, _ = self._run_cli(
+            "bugreport", "--no-edit", "-o", "reports/nested", "-s", "fixed"
+        )
+        self.assertIsNone(result)
+        report = Path(
+            self.repo_path, "reports/nested/dulwich-bugreport-fixed.txt"
+        ).read_text()
+        self.assertIn("Bare: False", report)
+        self.assertIn("pre-commit", report)
+        self.assertNotIn("private-token", report)
+        self.assertNotIn("private-hook-content", report)
+
+    def test_bugreport_does_not_overwrite(self):
+        """A repeated suffix must preserve the existing report."""
+        report = Path(self.repo_path, "dulwich-bugreport.txt")
+        report.write_text("existing report")
+        with self.assertRaises(FileExistsError):
+            self._run_cli("bugreport", "--no-edit", "--no-suffix")
+        self.assertEqual(report.read_text(), "existing report")
+
+    @patch("dulwich.cli.launch_editor", return_value=b"User report\n")
+    def test_bugreport_editor(self, editor):
+        """The generated template is editable before sharing."""
+        self._run_cli("bugreport", "--no-suffix")
+        self.assertIn(b"Dulwich version:", editor.call_args.args[0])
+        self.assertEqual(
+            Path(self.repo_path, "dulwich-bugreport.txt").read_text(), "User report\n"
+        )
+
+    def test_bugreport_suffix_cannot_escape_output_directory(self):
+        """Suffixes identify files, not paths."""
+        for suffix in ("../escape", "nested/name", "nested\\name"):
+            with self.subTest(suffix=suffix), self.assertRaises(SystemExit):
+                self._run_cli("bugreport", "--no-edit", "--suffix", suffix)
+
+    def test_bugreport_bare_repository(self):
+        """Bare repositories do not need a worktree to produce a report."""
+        bare_path = os.path.join(self.test_dir, "bare")
+        os.mkdir(bare_path)
+        with Repo.init_bare(bare_path):
+            self.repo_path = bare_path
+            self._run_cli("bugreport", "--no-edit", "--no-suffix")
+        self.assertIn(
+            "Bare: True", Path(bare_path, "dulwich-bugreport.txt").read_text()
+        )
+
+    @skipIf(os.name == "nt", "Windows does not use Unix executable permissions")
+    def test_bugreport_configured_hooks(self):
+        """Only executable files in the configured hook directory are listed."""
+        hooks = Path(self.repo_path, "custom-hooks")
+        hooks.mkdir()
+        for name, mode in (("pre-commit", 0o755), ("disabled", 0o644)):
+            hook = hooks / name
+            hook.write_text("#!/bin/sh\n")
+            hook.chmod(mode)
+        (hooks / "directory").mkdir()
+        config = self.repo.get_config()
+        config.set((b"core",), b"hooksPath", b"custom-hooks")
+        config.write_to_path()
+        self._run_cli("bugreport", "--no-edit", "--no-suffix")
+        report = Path(self.repo_path, "dulwich-bugreport.txt").read_text()
+        self.assertIn("  pre-commit\n", report)
+        self.assertNotIn("disabled", report)
+        self.assertNotIn("  directory\n", report)
+
+    @patch("dulwich.cli.launch_editor", side_effect=RuntimeError("editor failed"))
+    def test_bugreport_editor_failure_preserves_template(self, editor):
+        """The generated report remains available after editor failure."""
+        with self.assertRaisesRegex(RuntimeError, "editor failed"):
+            self._run_cli("bugreport", "--no-suffix")
+        self.assertIn(
+            "Dulwich version:",
+            Path(self.repo_path, "dulwich-bugreport.txt").read_text(),
+        )
+
+    def test_bugreport_default_suffix(self):
+        """The default name uses a local-time suffix."""
+        self._run_cli("bugreport", "--no-edit")
+        reports = list(Path(self.repo_path).glob("dulwich-bugreport-*.txt"))
+        self.assertEqual(len(reports), 1)
+        self.assertRegex(
+            reports[0].name, r"dulwich-bugreport-\d{4}-\d{2}-\d{2}-\d{4}\.txt"
+        )
 
 
 class HelperFunctionsTest(TestCase):
