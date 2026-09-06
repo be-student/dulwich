@@ -159,6 +159,37 @@ class GitClientTests(TestCase):
         self.rin = BytesIO()
         self.client = DummyClient(lambda x: True, self.rin.read, self.rout.write)
 
+    def test_clone_forwards_shallow_options_to_fetch(self) -> None:
+        target = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, target)
+        commit_id = b"0" * 40
+        fetch_result = FetchPackResult(
+            {b"HEAD": commit_id, b"refs/heads/main": commit_id},
+            {b"HEAD": b"refs/heads/main"},
+            None,
+        )
+
+        with (
+            patch.object(self.client, "get_url", return_value="source"),
+            patch.object(self.client, "fetch", return_value=fetch_result) as fetch,
+        ):
+            repo = self.client.clone(
+                "source",
+                target,
+                mkdir=False,
+                checkout=False,
+                shallow_since="2026-01-01T00:00:00Z",
+                shallow_exclude=["refs/heads/legacy"],
+            )
+            self.addCleanup(repo.close)
+
+        self.assertEqual(
+            "2026-01-01T00:00:00Z", fetch.call_args.kwargs["shallow_since"]
+        )
+        self.assertEqual(
+            ["refs/heads/legacy"], fetch.call_args.kwargs["shallow_exclude"]
+        )
+
     def test_caps(self) -> None:
         agent_cap = "agent=dulwich/{}.{}.{}".format(*dulwich.__version__).encode(
             "ascii"

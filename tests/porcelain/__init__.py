@@ -1388,6 +1388,35 @@ class CleanTests(PorcelainTestCase):
 
 
 class CloneTests(PorcelainTestCase):
+    def test_shallow_options_reach_client(self) -> None:
+        captured = {}
+        result = object()
+
+        class Client:
+            def clone(self, *args, **kwargs):
+                captured.update(kwargs)
+                return result
+
+        original = porcelain.get_transport_and_path
+        porcelain.get_transport_and_path = lambda location, **kwargs: (
+            Client(),
+            location,
+        )
+        self.addCleanup(setattr, porcelain, "get_transport_and_path", original)
+
+        target = os.path.join(self.test_dir, "shallow-target")
+        self.assertIs(
+            result,
+            porcelain.clone(
+                "https://example.com/repo.git",
+                target,
+                shallow_since="2026-01-01T00:00:00Z",
+                shallow_exclude=["refs/heads/legacy"],
+            ),
+        )
+        self.assertEqual("2026-01-01T00:00:00Z", captured["shallow_since"])
+        self.assertEqual(["refs/heads/legacy"], captured["shallow_exclude"])
+
     def test_simple_local(self) -> None:
         f1_1 = make_object(Blob, data=b"f1")
         commit_spec = [[1], [2, 1], [3, 1, 2]]

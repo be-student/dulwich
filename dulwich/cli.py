@@ -2017,6 +2017,15 @@ class cmd_clone(Command):
         )
         parser.add_argument("--depth", type=int, help="Depth at which to fetch")
         parser.add_argument(
+            "--shallow-since",
+            help="Create a shallow clone with history after the specified date",
+        )
+        parser.add_argument(
+            "--shallow-exclude",
+            action="append",
+            help="Create a shallow clone excluding history reachable from this revision",
+        )
+        parser.add_argument(
             "-b",
             "--branch",
             type=str,
@@ -2059,6 +2068,8 @@ class cmd_clone(Command):
                 filter_spec=parsed_args.filter_spec,
                 protocol_version=parsed_args.protocol,
                 recurse_submodules=parsed_args.recurse_submodules,
+                shallow_since=parsed_args.shallow_since,
+                shallow_exclude=parsed_args.shallow_exclude,
             )
         except GitProtocolError as e:
             logger.exception(e)

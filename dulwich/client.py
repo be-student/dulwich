@@ -1446,6 +1446,8 @@ class GitClient:
         branch: str | None = None,
         progress: Callable[[bytes], None] | None = None,
         depth: int | None = None,
+        shallow_since: str | None = None,
+        shallow_exclude: list[str] | None = None,
         ref_prefix: Sequence[bytes] | None = None,
         filter_spec: bytes | None = None,
         protocol_version: int | None = None,
@@ -1463,6 +1465,8 @@ class GitClient:
           branch: Branch to checkout (default: remote HEAD)
           progress: Optional callback for progress reporting
           depth: Shallow clone depth
+          shallow_since: Create a shallow clone with history after this date
+          shallow_exclude: Exclude commits reachable from these revisions from shallow history
           ref_prefix: List of ref prefixes to fetch
           filter_spec: Partial clone filter specification
           protocol_version: Git protocol version to use
@@ -1549,6 +1553,8 @@ class GitClient:
                 target,
                 progress=progress,
                 depth=depth,
+                shallow_since=shallow_since,
+                shallow_exclude=shallow_exclude,
                 ref_prefix=ref_prefix,
                 filter_spec=filter_spec,
                 protocol_version=protocol_version,
@@ -3242,6 +3248,8 @@ class LocalGitClient(GitClient):
         branch: str | None = None,
         progress: Callable[[bytes], None] | None = None,
         depth: int | None = None,
+        shallow_since: str | None = None,
+        shallow_exclude: list[str] | None = None,
         ref_prefix: Sequence[bytes] | None = None,
         filter_spec: bytes | None = None,
         protocol_version: int | None = None,
@@ -3296,6 +3304,8 @@ class LocalGitClient(GitClient):
                 target,
                 progress=progress,
                 depth=depth,
+                shallow_since=shallow_since,
+                shallow_exclude=shallow_exclude,
                 ref_prefix=ref_prefix,
                 filter_spec=filter_spec,
                 protocol_version=protocol_version,

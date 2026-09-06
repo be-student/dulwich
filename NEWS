@@ -1,5 +1,8 @@
 1.2.15	UNRELEASED
 
+ * Add ``dulwich clone --shallow-since`` and repeatable
+   ``--shallow-exclude`` options. (eunwoo song, #1846)
+
  * Support ``dulwich commit -C/--reuse-message`` and ``-c/--reedit-message``
    to reuse a commit's message, author and author date, optionally editing
    the message. The committer and new commit ancestry remain independent.

@@ -190,6 +190,35 @@ class InitCommandTest(DulwichCliTestCase):
         self.assertEqual(b"sha256", config.get((b"extensions",), b"objectformat"))
 
 
+class CloneCommandTest(DulwichCliTestCase):
+    """Tests for clone command."""
+
+    @patch("dulwich.cli.porcelain.clone")
+    def test_clone_shallow_options(self, mock_clone: MagicMock) -> None:
+        self._run_cli(
+            "clone",
+            "--shallow-since=2026-01-01T00:00:00Z",
+            "--shallow-exclude=refs/heads/legacy",
+            "--shallow-exclude=refs/tags/archive",
+            "https://example.com/repo.git",
+            "target",
+        )
+
+        mock_clone.assert_called_once_with(
+            "https://example.com/repo.git",
+            "target",
+            bare=False,
+            depth=None,
+            branch=None,
+            refspec=None,
+            filter_spec=None,
+            protocol_version=None,
+            recurse_submodules=False,
+            shallow_since="2026-01-01T00:00:00Z",
+            shallow_exclude=["refs/heads/legacy", "refs/tags/archive"],
+        )
+
+
 class HelperFunctionsTest(TestCase):
     """Tests for CLI helper functions."""
 

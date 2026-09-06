@@ -1833,6 +1833,8 @@ def clone(
     outstream: BinaryIO | None = None,
     origin: str | None = "origin",
     depth: int | None = None,
+    shallow_since: str | None = None,
+    shallow_exclude: list[str] | None = None,
     branch: str | bytes | None = None,
     config: Config | None = None,
     filter_spec: str | None = None,
@@ -1853,6 +1855,8 @@ def clone(
       outstream: Optional stream to write progress to (deprecated)
       origin: Name of remote from the repository used to clone
       depth: Depth to fetch at
+      shallow_since: Create a shallow clone with history after this date
+      shallow_exclude: Exclude commits reachable from these revisions from shallow history
       branch: Optional branch or tag to be used as HEAD in the new repository
         instead of the cloned repository's HEAD.
       config: Configuration to use
@@ -1939,6 +1943,8 @@ def clone(
         branch=branch.decode() if branch else None,  # Convert bytes to str
         progress=lambda data: (errstream.write(data), None)[1],
         depth=depth,
+        shallow_since=shallow_since,
+        shallow_exclude=shallow_exclude,
         filter_spec=filter_spec_bytes,
         protocol_version=protocol_version,
     )
