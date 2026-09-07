@@ -870,7 +870,9 @@ def _parse_ceiling_dirs(env: Mapping[str, str]) -> list[str] | None:
     return result
 
 
-def _parse_env_bool(env: Mapping[str, str], name: str) -> bool:
+def _parse_env_bool(
+    env: Mapping[str, str], name: str, *, default: bool = False
+) -> bool:
     """Parse a boolean Git environment variable.
 
     Follows git's rules: ``true``/``yes``/``on`` and any non-zero integer
@@ -879,7 +881,7 @@ def _parse_env_bool(env: Mapping[str, str], name: str) -> bool:
     """
     raw = env.get(name)
     if raw is None:
-        return False
+        return default
     value = raw.strip().lower()
     if value in ("true", "yes", "on"):
         return True
@@ -899,11 +901,9 @@ def _include_broken_refs(env: Mapping[str, str] | None) -> bool:
     Git enables ref paranoia by default. Setting ``GIT_REF_PARANOIA`` to a
     false value opts into silently skipping broken refs.
     """
-    if env is None:
-        env = os.environ
-    if "GIT_REF_PARANOIA" not in env:
-        return True
-    return _parse_env_bool(env, "GIT_REF_PARANOIA")
+    return _parse_env_bool(
+        os.environ if env is None else env, "GIT_REF_PARANOIA", default=True
+    )
 
 
 def _repo_from_env(

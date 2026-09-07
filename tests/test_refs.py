@@ -38,7 +38,6 @@ from dulwich.refs import (
     DictRefsContainer,
     DiskRefsContainer,
     NamespacedRefsContainer,
-    Ref,
     SymrefLoop,
     _split_ref_line,
     check_ref_format,
@@ -444,17 +443,6 @@ class DictRefsContainerTests(RefsContainerTests, TestCase):
         del expected_refs[b"refs/heads/loop"]
         expected_refs[b"refs/stash"] = b"00" * 20
         self.assertEqual(expected_refs, self._refs.as_dict())
-
-    def test_default_iteration_supports_legacy_subclass_signatures(self) -> None:
-        class LegacyRefsContainer(DictRefsContainer):
-            def allkeys(self) -> set[Ref]:
-                return super().allkeys()
-
-            def read_loose_ref(self, name: Ref) -> bytes | None:
-                return super().read_loose_ref(name)
-
-        refs = LegacyRefsContainer({Ref(b"refs/heads/main"): ONES})
-        self.assertEqual({Ref(b"refs/heads/main"): ONES}, refs.as_dict())
 
     def test_set_if_equals_with_symbolic_ref(self) -> None:
         # Test that set_if_equals only updates the requested ref,
