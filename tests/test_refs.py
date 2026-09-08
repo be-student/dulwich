@@ -521,7 +521,9 @@ class DiskRefsContainerTests(RefsContainerTests, TestCase):
         self.assertIsNone(self._refs.read_ref(b"refs/../config", include_broken=True))
 
     def test_as_dict_with_broken_refs_keeps_head(self) -> None:
-        self.assertEqual(self._refs[b"HEAD"], self._refs.as_dict(include_broken=True)[b"HEAD"])
+        self.assertEqual(
+            self._refs[b"HEAD"], self._refs.as_dict(include_broken=True)[b"HEAD"]
+        )
 
     def test_remove_packed_ref_with_unread_packed_refs(self) -> None:
         # An unconditional delete never reads packed-refs on the way in, so
