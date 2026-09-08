@@ -1153,7 +1153,7 @@ class DiskRefsContainer(RefsContainer):
             except RefFormatError:
                 return None
         # Broken names may bypass ref-format validation, but never the refs tree.
-        if include_broken and (
+        if include_broken and name != HEADREF and (
             not name.startswith(b"refs/") or b".." in name.split(b"/")
         ):
             return None
