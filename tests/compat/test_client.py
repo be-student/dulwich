@@ -42,7 +42,7 @@ from typing import NoReturn
 from unittest.mock import patch
 from urllib.parse import unquote
 
-from dulwich import cli, client, file, index, objects, protocol, repo
+from dulwich import client, file, index, objects, protocol, repo
 from dulwich.porcelain import tag_create
 
 from .. import SkipTest, expectedFailure
@@ -674,17 +674,21 @@ class DulwichTCPClientTest(CompatTestCase, DulwichClientTestBase):
     def test_cli_clone_with_shallow_since_and_exclude(self) -> None:
         target = os.path.join(self.gitroot, "shallow-clone")
 
-        result = cli.main(
+        subprocess.run(
             [
+                sys.executable,
+                "-m",
+                "dulwich",
                 "clone",
                 "--shallow-since=1265755200",
                 "--shallow-exclude=refs/heads/branch",
                 f"git://localhost:{self.port}/server_new.export",
                 target,
-            ]
+            ],
+            check=True,
+            capture_output=True,
         )
 
-        self.assertIsNone(result)
         with repo.Repo(target) as cloned:
             self.assertEqual(
                 {b"da5cd81e1883c62a25bb37c4d1f8ad965b29bf8d"},
